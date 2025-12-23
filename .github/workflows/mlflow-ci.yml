@@ -14,7 +14,7 @@ env:
   CONDA_ENV_PATH: MLProject/conda.yaml
   DOCKER_IMAGE_NAME: bank-churn-mlflow-model
   MLFLOW_TRACKING_URI: sqlite:///MLProject/mlflow.db
-  EXPERIMENT_NAME: Bank churn Experiment
+  EXPERIMENT_NAME: Bank Customer Churn Experiment
 
 jobs:
   mlflow-ci-cd:

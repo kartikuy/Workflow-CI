@@ -1,0 +1,13 @@
+name: bank-customer-churn-mlflow
+
+conda_env: conda.yaml
+
+entry_points:
+  main:
+    parameters:
+      input_path:
+        type: path
+        description: Path to preprocessed CSV
+        default: preprocessed_Bank_Customer_Churn_Prediction.csv
+    command: >
+      python modelling.py --input_path {input_path}

@@ -1,0 +1,140 @@
+name: CI/CD MLflow
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CONDA_ENV_NAME: mlflow-env
+  CONDA_ENV_PATH: MLProject/conda.yaml
+  DOCKER_IMAGE_NAME: bank-churn-mlflow-model
+  MLFLOW_TRACKING_URI: sqlite:///MLProject/mlflow.db
+  EXPERIMENT_NAME: Bank churn Experiment
+
+jobs:
+  mlflow-ci-cd:
+    runs-on: ubuntu-latest
+
+    if: github.actor != 'github-actions[bot]'
+
+    steps:
+      # 1. Checkout repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 2. Setup Conda
+      - name: Set up Conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          python-version: '3.10'
+          activate-environment: ${{ env.CONDA_ENV_NAME }}
+          environment-file: ${{ env.CONDA_ENV_PATH }}
+          auto-activate-base: false
+
+      # 3. Run MLflow Project (Training)
+      - name: Run MLflow Project
+        shell: bash
+        run: |
+          source "$(conda info --base)/etc/profile.d/conda.sh"
+          conda activate ${{ env.CONDA_ENV_NAME }}
+
+          export MLFLOW_TRACKING_URI=${{ env.MLFLOW_TRACKING_URI }}
+
+          mlflow run MLProject \
+            -P input_path=MLProject/preprocessed_Bank_Customer_Churn_Prediction.csv
+
+      # 4. Get latest MLflow run_id
+      - name: Get latest MLflow run_id
+        id: get_run_id
+        shell: bash
+        run: |
+          source "$(conda info --base)/etc/profile.d/conda.sh"
+          conda activate ${{ env.CONDA_ENV_NAME }}
+
+          python <<EOF
+          import mlflow
+
+          mlflow.set_tracking_uri("${{ env.MLFLOW_TRACKING_URI }}")
+
+          exp = mlflow.get_experiment_by_name("${{ env.EXPERIMENT_NAME }}")
+          if exp is None:
+              raise RuntimeError("Experiment tidak ditemukan")
+
+          runs = mlflow.search_runs(
+              experiment_ids=[exp.experiment_id],
+              order_by=["start_time DESC"],
+              max_results=1
+          )
+
+          if runs.empty:
+              raise RuntimeError("Tidak ada run ditemukan")
+
+          run_id = runs.iloc[0]["run_id"]
+          print("RUN_ID =", run_id)
+
+          with open("${GITHUB_ENV}", "a") as f:
+              f.write(f"RUN_ID={run_id}\n")
+          EOF
+
+      # 5. Commit MLflow artifacts 
+      - name: Commit MLflow artifacts
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add -f MLProject/mlruns/
+          git commit -m "Add MLflow artifacts for run $RUN_ID [skip ci]" || echo "No changes"
+          git pull --rebase https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git main
+          git push https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git HEAD:main
+
+      # 6. Build Docker image from MLflow model
+      - name: Build Docker image
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          docker info
+          source "$(conda info --base)/etc/profile.d/conda.sh"
+          conda activate ${{ env.CONDA_ENV_NAME }}
+
+          export MLFLOW_TRACKING_URI=${{ env.MLFLOW_TRACKING_URI }}
+
+          mlflow models build-docker \
+            --model-uri "runs:/$RUN_ID/model" \
+            --name ${{ env.DOCKER_IMAGE_NAME }}
+
+      # 7. Login Docker Hub
+      - name: Log in to Docker Hub
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # 8. Tag Docker image
+      - name: Tag Docker image
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          docker tag ${{ env.DOCKER_IMAGE_NAME }} \
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+
+          docker tag ${{ env.DOCKER_IMAGE_NAME }} \
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:run-$RUN_ID
+
+      # 9. Push Docker image
+      - name: Push Docker image
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:run-$RUN_ID

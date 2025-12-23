@@ -48,9 +48,7 @@ jobs:
 
           export MLFLOW_TRACKING_URI=${{ env.MLFLOW_TRACKING_URI }}
 
-          mlflow run MLProject \ 
-            --experiment-name "${{ env.EXPERIMENT_NAME }}" \
-            -P input_path=MLProject/preprocessed_Bank_Customer_Churn_Prediction.csv
+          mlflow run MLProject --experiment-name "${{ env.EXPERIMENT_NAME }}" -P input_path=MLProject/preprocessed_Bank_Customer_Churn_Prediction.csv
 
       # 4. Get latest MLflow run_id
       - name: Get latest MLflow run_id

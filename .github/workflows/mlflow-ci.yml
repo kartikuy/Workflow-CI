@@ -48,7 +48,8 @@ jobs:
 
           export MLFLOW_TRACKING_URI=${{ env.MLFLOW_TRACKING_URI }}
 
-          mlflow run MLProject \
+          mlflow run MLProject \ 
+            --experiment-name "${{ env.EXPERIMENT_NAME }}" \
             -P input_path=MLProject/preprocessed_Bank_Customer_Churn_Prediction.csv
 
       # 4. Get latest MLflow run_id
@@ -86,7 +87,6 @@ jobs:
 
       # 5. Commit MLflow artifacts 
       - name: Commit MLflow artifacts
-        if: github.event_name == 'push'
         shell: bash
         run: |
           git config --global user.name "github-actions[bot]"
